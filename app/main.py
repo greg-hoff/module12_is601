@@ -158,9 +158,20 @@ def create_calculation(
 
     except ValueError as e:  # pragma: no cover
         db.rollback()  # pragma: no cover
+        error_msg = str(e)
+        # Provide more specific error messages for common validation issues
+        if "position" in error_msg and "number" in error_msg:
+            detail = f"Invalid input data: {error_msg}"
+        elif "divide by zero" in error_msg.lower():
+            detail = "Cannot divide by zero. Please check your inputs."
+        elif "two numbers" in error_msg:
+            detail = "At least two numbers are required for calculation."
+        else:
+            detail = f"Calculation error: {error_msg}"
+            
         raise HTTPException(  # pragma: no cover
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=detail
         )
 
 # Browse / List Calculations (for the current user)

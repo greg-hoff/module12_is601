@@ -19,7 +19,7 @@ class CalculationBase(BaseModel):
     )
     inputs: List[float] = Field(
         ...,
-        description="List of numeric inputs for the calculation",
+        description="List of numeric inputs for the calculation. Accepts integers, floats, or numeric strings.",
         example=[10.5, 3, 2],
         min_items=2
     )
@@ -38,7 +38,25 @@ class CalculationBase(BaseModel):
     def check_inputs_is_list(cls, v):
         if not isinstance(v, list):
             raise ValueError("Input should be a valid list")
-        return v
+        
+        # Validate and convert each element to float
+        validated_inputs = []
+        for i, item in enumerate(v):
+            try:
+                # Try to convert to float
+                if isinstance(item, (int, float)):
+                    validated_inputs.append(float(item))
+                elif isinstance(item, str):
+                    # Allow string numbers like "3.14"
+                    validated_inputs.append(float(item))
+                else:
+                    raise ValueError(f"Input at position {i} must be a number, got {type(item).__name__}")
+            except ValueError as e:
+                if "could not convert" in str(e) or "invalid literal" in str(e):
+                    raise ValueError(f"Input at position {i} must be a valid number, got '{item}'")
+                raise e
+        
+        return validated_inputs
 
     @model_validator(mode='after')
     def validate_inputs(self) -> "CalculationBase":
