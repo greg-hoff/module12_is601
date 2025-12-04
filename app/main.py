@@ -221,9 +221,18 @@ def update_calculation(
     if not calculation:  # pragma: no cover
         raise HTTPException(status_code=404, detail="Calculation not found.")  # pragma: no cover
 
+    # Update the calculation type if provided
+    if calculation_update.type is not None:
+        calculation.type = calculation_update.type.value
+    
+    # Update the inputs if provided
     if calculation_update.inputs is not None:
         calculation.inputs = calculation_update.inputs
+    
+    # Recalculate the result if either type or inputs changed
+    if calculation_update.type is not None or calculation_update.inputs is not None:
         calculation.result = calculation.get_result()
+    
     calculation.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(calculation)

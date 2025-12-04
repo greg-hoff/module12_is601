@@ -99,6 +99,11 @@ class CalculationCreate(CalculationBase):
 
 class CalculationUpdate(BaseModel):
     """Schema for updating an existing Calculation"""
+    type: Optional[CalculationType] = Field(
+        None,
+        description="Updated calculation type (addition, subtraction, multiplication, division)",
+        example="multiplication"
+    )
     inputs: Optional[List[float]] = Field(
         None,
         description="Updated list of numeric inputs for the calculation",
@@ -106,16 +111,65 @@ class CalculationUpdate(BaseModel):
         min_items=2
     )
 
+    @field_validator("type", mode="before")
+    @classmethod
+    def validate_type(cls, v):
+        if v is None:
+            return v
+        allowed = {e.value for e in CalculationType}
+        if not isinstance(v, str) or v.lower() not in allowed:
+            raise ValueError(f"Type must be one of: {', '.join(sorted(allowed))}")
+        return v.lower()
+
+    @field_validator("inputs", mode="before")
+    @classmethod
+    def check_inputs_is_list(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            raise ValueError("Input should be a valid list")
+        
+        # Validate and convert each element to float
+        validated_inputs = []
+        for i, item in enumerate(v):
+            try:
+                # Try to convert to float
+                if isinstance(item, (int, float)):
+                    validated_inputs.append(float(item))
+                elif isinstance(item, str):
+                    # Allow string numbers like "3.14"
+                    validated_inputs.append(float(item))
+                else:
+                    raise ValueError(f"Input at position {i} must be a number, got {type(item).__name__}")
+            except ValueError as e:
+                if "could not convert" in str(e) or "invalid literal" in str(e):
+                    raise ValueError(f"Input at position {i} must be a valid number, got '{item}'")
+                raise e
+        
+        return validated_inputs
+
     @model_validator(mode='after')
     def validate_inputs(self) -> "CalculationUpdate":
         """Validate the inputs if they are being updated"""
         if self.inputs is not None and len(self.inputs) < 2:
             raise ValueError("At least two numbers are required for calculation")
+        
+        # If changing to division, prevent division by zero
+        if self.type == CalculationType.DIVISION and self.inputs is not None:
+            if any(x == 0 for x in self.inputs[1:]):
+                raise ValueError("Cannot divide by zero")
+        
         return self
 
     model_config = ConfigDict(
         from_attributes=True,
-        json_schema_extra={"example": {"inputs": [42, 7]}}
+        json_schema_extra={
+            "examples": [
+                {"inputs": [42, 7]},
+                {"type": "multiplication"},
+                {"type": "division", "inputs": [100, 5]}
+            ]
+        }
     )
 
 class CalculationResponse(CalculationBase):
