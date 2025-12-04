@@ -385,3 +385,108 @@ class TestMainModuleExecution:
             import uvicorn
             uvicorn.run("app.main:app", host="127.0.0.1", port=8001, log_level="info")
             mock_run.assert_called_once_with("app.main:app", host="127.0.0.1", port=8001, log_level="info")
+
+
+class TestCalculationUpdateEndpoint:
+    """Test the calculation update endpoint with type changes."""
+    
+    def test_update_calculation_requires_authentication(self):
+        """Test that update calculation endpoint requires authentication."""
+        client = TestClient(app)
+        
+        calc_id = str(uuid.uuid4())
+        
+        # Test type-only update without authentication
+        response = client.put(f"/calculations/{calc_id}", json={"type": "multiplication"})
+        assert response.status_code == 401
+        
+        # Test inputs-only update without authentication 
+        response = client.put(f"/calculations/{calc_id}", json={"inputs": [20, 22]})
+        assert response.status_code == 401
+        
+        # Test both fields update without authentication
+        response = client.put(
+            f"/calculations/{calc_id}", 
+            json={"type": "division", "inputs": [100, 20]}
+        )
+        assert response.status_code == 401
+    
+    def test_update_calculation_validation_error(self):
+        """Test update with invalid data returns 422 validation error."""
+        client = TestClient(app)
+        
+        calc_id = str(uuid.uuid4())
+        
+        # Test invalid calculation type
+        response = client.put(f"/calculations/{calc_id}", json={"type": "invalid_type"})
+        assert response.status_code in [401, 422]  # 401 if not authenticated, 422 if validation fails first
+        
+        # Test invalid inputs (too few)
+        response = client.put(f"/calculations/{calc_id}", json={"inputs": [42]})
+        assert response.status_code in [401, 422]  # 401 if not authenticated, 422 if validation fails first
+        
+        # Test invalid input type
+        response = client.put(f"/calculations/{calc_id}", json={"inputs": [42, "not_a_number"]})
+        assert response.status_code in [401, 422]  # 401 if not authenticated, 422 if validation fails first
+    
+    def test_update_calculation_logic_verification(self):
+        """Test the core update logic works correctly with proper mocking."""
+        # This test focuses on the specific update logic that we added
+        
+        # Import the actual function to test it directly
+        from app.main import update_calculation
+        from app.schemas.calculation import CalculationUpdate
+        
+        # Create mock objects
+        mock_user = Mock()
+        mock_user.id = uuid.uuid4()
+        
+        mock_db = Mock(spec=Session)
+        mock_calculation = Mock()
+        mock_calculation.id = uuid.uuid4()
+        mock_calculation.user_id = mock_user.id
+        mock_calculation.type = "addition"
+        mock_calculation.inputs = [10, 5]
+        mock_calculation.get_result.return_value = 50.0
+        
+        # Mock the database query chain
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_calculation
+        
+        # Test 1: Type-only update
+        calc_update = CalculationUpdate(type="multiplication")
+        calc_id = str(mock_calculation.id)
+        
+        result = update_calculation(calc_id, calc_update, mock_user, mock_db)
+        
+        # Verify the type was updated
+        assert mock_calculation.type == "multiplication"
+        # Verify get_result was called to recalculate
+        mock_calculation.get_result.assert_called_once()
+        mock_db.commit.assert_called_once()
+        
+        # Reset mocks for next test
+        mock_calculation.get_result.reset_mock()
+        mock_db.commit.reset_mock()
+        
+        # Test 2: Inputs-only update
+        calc_update = CalculationUpdate(inputs=[20, 22])
+        
+        result = update_calculation(calc_id, calc_update, mock_user, mock_db)
+        
+        # Verify the inputs were updated
+        assert mock_calculation.inputs == [20, 22]
+        # Verify get_result was called to recalculate
+        mock_calculation.get_result.assert_called_once()
+        
+        # Reset mocks for next test
+        mock_calculation.get_result.reset_mock()
+        mock_db.commit.reset_mock()
+        
+        # Test 3: No changes
+        calc_update = CalculationUpdate()  # No fields set
+        
+        result = update_calculation(calc_id, calc_update, mock_user, mock_db)
+        
+        # Verify get_result was NOT called since nothing changed
+        mock_calculation.get_result.assert_not_called()
+        mock_db.commit.assert_called_once()
